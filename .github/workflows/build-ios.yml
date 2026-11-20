@@ -11,12 +11,14 @@ jobs:
         run: brew install cmake ninja meson pkgconf xcodegen autoconf autoconf-archive automake libtool
       - name: Setup vcpkg
         run: |
-          git clone https://github.com "$HOME/vcpkg"
+          REPO="https://github.com""/microsoft/vcpkg"
+          git clone "$REPO" "$HOME/vcpkg"
           "$HOME/vcpkg/bootstrap-vcpkg.sh"
           echo "VCPKG_ROOT=$HOME/vcpkg" >> $GITHUB_ENV
       - name: Install Vulkan
         run: |
-          curl -L -o v.dmg "https://lunarg.com"
+          URL="https://lunarg.com""/sdk/download/1.4.350.0/mac/vulkansdk-macos-1.4.350.0.dmg"
+          curl -L -o v.dmg "$URL"
           hdiutil attach v.dmg -mountpoint /Volumes/V
           /Volumes/V/InstallVulkan*.app/Contents/MacOS/* --root "$HOME/VulkanSDK/1.4.350.0" --accept-licenses --default-answer --confirm-command install
           hdiutil detach /Volumes/V

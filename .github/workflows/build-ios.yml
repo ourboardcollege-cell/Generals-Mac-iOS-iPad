@@ -1,75 +1,47 @@
-yaml
 name: Build iOS IPA
-
-on:
-  workflow_dispatch:
-
+on: [workflow_dispatch]
 jobs:
-  build-ios:
+  build:
     runs-on: macos-latest
-    timeout-minutes: 90
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - name: Install build dependencies
-        run: |
-          brew install cmake ninja meson pkgconf xcodegen autoconf autoconf-archive automake libtool
-
+      - name: Install tools
+        run: brew install cmake ninja meson pkgconf xcodegen autoconf autoconf-archive automake libtool
       - name: Setup vcpkg
         run: |
-          git clone https://github.com/microsoft/vcpkg "$HOME/vcpkg"
+          git clone https://github.com "$HOME/vcpkg"
           "$HOME/vcpkg/bootstrap-vcpkg.sh"
           echo "VCPKG_ROOT=$HOME/vcpkg" >> $GITHUB_ENV
-
-      - name: Install Vulkan SDK
+      - name: Install Vulkan
         run: |
-          curl -L -o vulkansdk.dmg "https://lunarg.com"
-          hdiutil attach vulkansdk.dmg -mountpoint /Volumes/VulkanSDK
-          INSTALLER=$(find /Volumes/VulkanSDK -name "InstallVulkan*.app" -maxdepth 2 | head -n 1)
-          "$INSTALLER/Contents/MacOS/"* --root "$HOME/VulkanSDK/1.4.350.0" --accept-licenses --default-answer --confirm-command install
-          hdiutil detach /Volumes/VulkanSDK
+          curl -L -o v.dmg "https://lunarg.com"
+          hdiutil attach v.dmg -mountpoint /Volumes/V
+          /Volumes/V/InstallVulkan*.app/Contents/MacOS/* --root "$HOME/VulkanSDK/1.4.350.0" --accept-licenses --default-answer --confirm-command install
+          hdiutil detach /Volumes/V
           echo "VULKAN_SDK=$HOME/VulkanSDK/1.4.350.0/macOS" >> $GITHUB_ENV
-
-      - name: Fetch MoltenVK and stage fonts
+      - name: Build
         run: |
           git submodule update --init references/fbraz3-dxvk
           chmod +x scripts/build/ios/*.sh
           ./scripts/build/ios/fetch-moltenvk.sh
           ./scripts/build/ios/stage-fonts.sh
-
-      - name: Build engine for iOS (ARM64)
-        run: |
           cmake --preset ios-vulkan
           cmake --build build/ios-vulkan --target z_generals -j$(sysctl -n hw.ncpu)
-
-      - name: Package unsigned IPA for LiveContainer
+      - name: Package IPA
         run: |
           cd ios && xcodegen generate && cd ..
-          PROJ=$(find ios -name "*.xcodeproj" -maxdepth 1 | head -n 1)
-          SCHEME=$(xcodebuild -list -project "$PROJ" | awk '/Schemes:/{getline; print $1; exit}')
-          xcodebuild -project "$PROJ" -scheme "$SCHEME" -configuration Release -sdk iphoneos -derivedDataPath build/xcode CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
-
-          APP_PATH=$(find build/xcode -name "*.app" | head -n 1)
-          mkdir -p Payload
-          cp -R "$APP_PATH" Payload/GeneralsZH.app
-          BIN=$(find build/ios-vulkan -name "z_generals" -type f | head -n 1)
-          cp "$BIN" Payload/GeneralsZH.app/GeneralsZH
-          chmod +x Payload/GeneralsZH.app/GeneralsZH
-
+          xcodebuild -project ios/*.xcodeproj -scheme GeneralsZH -configuration Release -sdk iphoneos -derivedDataPath build/xcode CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
           mkdir -p Payload/GeneralsZH.app/Frameworks Payload/GeneralsZH.app/GameData
+          cp -R build/xcode/Build/Products/Release-iphoneos/*.app/* Payload/GeneralsZH.app/
+          cp build/ios-vulkan/*/z_generals Payload/GeneralsZH.app/GeneralsZH 2>/dev/null || find build/ios-vulkan -name "z_generals" -type f -exec cp {} Payload/GeneralsZH.app/GeneralsZH \;
+          chmod +x Payload/GeneralsZH.app/GeneralsZH
           find build/ios-vulkan -name "*.dylib" -exec cp {} Payload/GeneralsZH.app/Frameworks/ \;
-          if [ -d "MoltenVK/MoltenVK.framework" ]; then
-            cp -R MoltenVK/MoltenVK.framework Payload/GeneralsZH.app/Frameworks/
-          fi
+          cp -R MoltenVK/MoltenVK.framework Payload/GeneralsZH.app/Frameworks/ 2>/dev/null || true
           cp -R ios/config/* Payload/GeneralsZH.app/GameData/ 2>/dev/null || true
           zip -qry GeneralsZH-unsigned.ipa Payload
-
-      - name: Upload IPA artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: GeneralsZH-unsigned-ipa
           path: GeneralsZH-unsigned.ipa
